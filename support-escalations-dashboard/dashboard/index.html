@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support Escalations — FastTrack AI</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --stream-slack: #2a78d6;
+    --stream-incident_io: #1baf7a;
+    --stream-intercom: #eda100;
+    --sev-p1: #d03b3b;
+    --sev-p2: #ec835a;
+    --sev-p3: #fab219;
+    --sev-none: #898781;
+    --good: #0ca30c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --stream-slack: #3987e5;
+      --stream-incident_io: #199e70;
+      --stream-intercom: #c98500;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 12.5px; }
+  .chips { display: flex; gap: 8px; margin: 14px 0 18px; flex-wrap: wrap; }
+  .chip {
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
+    border-radius: 999px; padding: 5px 14px; cursor: pointer; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .chip.on { color: var(--text-primary); font-weight: 600; border-color: var(--text-secondary); }
+  .chip:hover { border-color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .tile .label { color: var(--text-secondary); font-size: 12.5px; }
+  .tile .value { font-size: 30px; font-weight: 650; margin-top: 2px; }
+  .tile .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .tile .value.bad { color: var(--sev-p1); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card h2 { font-size: 13.5px; margin: 0 0 2px; font-weight: 600; }
+  .card .desc { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  .card.span2 { grid-column: 1 / -1; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  svg text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--text-secondary); }
+  svg .val { font-weight: 600; fill: var(--text-primary); }
+  svg .tick { fill: var(--muted); font-variant-numeric: tabular-nums; }
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,.18); max-width: 260px;
+  }
+  #tooltip b { display: block; margin-bottom: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px 10px; border-bottom: 1px solid var(--grid); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); white-space: nowrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .sev { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 5px; padding: 1px 7px; color: #fff; }
+  .sev.P1 { background: var(--sev-p1); } .sev.P2 { background: var(--sev-p2); }
+  .sev.P3 { background: var(--sev-p3); color: #1a1a19; }
+  .sev.none { background: transparent; color: var(--muted); border: 1px solid var(--grid); font-weight: 500; }
+  .sla-missed { color: var(--sev-p1); font-weight: 600; font-size: 12px; }
+  .sla-hit { color: var(--good); font-size: 12px; }
+  .sla-active { color: var(--text-secondary); font-size: 12px; }
+  a.item { color: var(--text-primary); text-decoration: none; }
+  a.item:hover { text-decoration: underline; }
+  .brand { color: var(--muted); font-size: 12px; }
+  .tablewrap { overflow-x: auto; }
+  .rowcount { color: var(--muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Support Escalations</h1>
+    <span class="sub" id="generated"></span>
+  </header>
+  <div class="sub">One view over the three streams that produce support work: <b>#ftai-feedback</b> (Slack), <b>Incident.io</b>, <b>Intercom</b>.</div>
+
+  <div class="chips" id="chips"></div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Open work by stream</h2>
+      <div class="desc">Items not yet closed, per source</div>
+      <div id="byStream"></div>
+    </div>
+    <div class="card">
+      <h2>Open by severity</h2>
+      <div class="desc">Incident/ticket priority where assigned</div>
+      <div id="bySeverity"></div>
+    </div>
+    <div class="card span2">
+      <h2>Inflow — last 21 days</h2>
+      <div class="desc">New items created per day, stacked by stream</div>
+      <div class="legend" id="inflowLegend"></div>
+      <div id="inflow"></div>
+    </div>
+    <div class="card span2">
+      <h2>Work items</h2>
+      <div class="desc">Unified queue, newest first · open items above closed</div>
+      <div class="tablewrap"><table id="itemsTable"></table></div>
+      <div class="rowcount" id="rowcount"></div>
+    </div>
+  </div>
+</div>
+<div id="tooltip"></div>
+
+<script>
+const STREAMS = [
+  { key: "slack",       label: "Slack #ftai-feedback", css: "--stream-slack" },
+  { key: "incident_io", label: "Incident.io",          css: "--stream-incident_io" },
+  { key: "intercom",    label: "Intercom",             css: "--stream-intercom" },
+];
+const SEVERITIES = [
+  { key: "P1", css: "--sev-p1" }, { key: "P2", css: "--sev-p2" },
+  { key: "P3", css: "--sev-p3" }, { key: "none", css: "--sev-none" },
+];
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const streamColor = k => cssVar(STREAMS.find(s => s.key === k).css);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+let DATA = null;
+let activeStreams = new Set(STREAMS.map(s => s.key));
+
+async function load() {
+  for (const path of ["../data/items.json", "../data/sample-items.json"]) {
+    try {
+      const r = await fetch(path);
+      if (r.ok) { DATA = await r.json(); break; }
+    } catch (e) { /* try next */ }
+  }
+  if (!DATA) {
+    document.getElementById("tiles").innerHTML =
+      '<div class="tile"><div class="label">No data found. Serve this folder over HTTP (see README) — file:// blocks fetch.</div></div>';
+    return;
+  }
+  document.getElementById("generated").textContent = "data as of " + DATA.generated_at.replace("T", " ").replace("Z", " UTC");
+  renderChips();
+  renderAll();
+}
+
+// "now" is the snapshot time, so ages stay honest for sample data
+const now = () => new Date(DATA.generated_at).getTime();
+const ageDays = iso => Math.max(0, (now() - new Date(iso).getTime()) / 86400000);
+const fmtAge = iso => {
+  const d = ageDays(iso);
+  if (d < 1) return Math.round(d * 24) + "h";
+  return Math.round(d) + "d";
+};
+const isOpen = it => it.status_category !== "closed";
+const filtered = () => DATA.items.filter(it => activeStreams.has(it.source));
+
+function renderChips() {
+  const el = document.getElementById("chips");
+  el.innerHTML = STREAMS.map(s =>
+    `<button class="chip on" data-k="${s.key}"><span class="dot" style="background:${cssVar(s.css)}"></span>${s.label}</button>`
+  ).join("");
+  el.querySelectorAll(".chip").forEach(btn => btn.addEventListener("click", () => {
+    const k = btn.dataset.k;
+    if (activeStreams.has(k) && activeStreams.size === 1) {
+      activeStreams = new Set(STREAMS.map(s => s.key));       // re-enable all
+    } else if (activeStreams.has(k)) activeStreams.delete(k);
+    else activeStreams.add(k);
+    el.querySelectorAll(".chip").forEach(b => b.classList.toggle("on", activeStreams.has(b.dataset.k)));
+    renderAll();
+  }));
+}
+
+function renderAll() { renderTiles(); renderByStream(); renderBySeverity(); renderInflow(); renderTable(); }
+
+function renderTiles() {
+  const items = filtered();
+  const open = items.filter(isOpen);
+  const slaMissed = open.filter(it => it.sla_status === "missed").length;
+  const highSev = open.filter(it => it.severity === "P1" || it.severity === "P2").length;
+  const oldest = open.length ? Math.max(...open.map(it => ageDays(it.created_at))) : 0;
+  const tiles = [
+    { label: "Open items", value: open.length, hint: `${items.length} total in window` },
+    { label: "SLA missed", value: slaMissed, hint: "Intercom SLAs", bad: slaMissed > 0 },
+    { label: "P1 / P2 open", value: highSev, hint: "high-severity work", bad: highSev > 0 },
+    { label: "Oldest open item", value: Math.round(oldest) + "d", hint: "age of longest-waiting item" },
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(t => `
+    <div class="tile">
+      <div class="label">${t.label}</div>
+      <div class="value${t.bad ? " bad" : ""}">${t.value}</div>
+      <div class="hint">${t.hint}</div>
+    </div>`).join("");
+}
+
+// --- horizontal bar list: [{label, value, color, hint}] ---
+function barList(rows, mountId) {
+  const max = Math.max(1, ...rows.map(r => r.value));
+  const W = 480, rowH = 34, labelW = 170, valW = 40;
+  const barW = W - labelW - valW;
+  const H = rows.length * rowH + 6;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">`;
+  rows.forEach((r, i) => {
+    const y = i * rowH + 6;
+    const w = Math.max(2, (r.value / max) * barW);
+    svg += `<text x="${labelW - 10}" y="${y + 14}" text-anchor="end">${esc(r.label)}</text>`;
+    svg += `<rect class="hover-mark" data-tip="${esc(r.tip || r.label + ": " + r.value)}"
+      x="${labelW}" y="${y}" width="${w}" height="20" rx="4" fill="${r.color}"/>`;
+    svg += `<text class="val" x="${labelW + w + 8}" y="${y + 14}">${r.value}</text>`;
+  });
+  svg += `<line x1="${labelW}" y1="0" x2="${labelW}" y2="${H}" stroke="var(--baseline)" stroke-width="1"/>`;
+  svg += "</svg>";
+  document.getElementById(mountId).innerHTML = svg;
+}
+
+function renderByStream() {
+  const open = filtered().filter(isOpen);
+  const rows = STREAMS.filter(s => activeStreams.has(s.key)).map(s => ({
+    label: s.label,
+    value: open.filter(it => it.source === s.key).length,
+    color: cssVar(s.css),
+    tip: `${s.label}: ${open.filter(it => it.source === s.key).length} open`,
+  }));
+  barList(rows, "byStream");
+}
+
+function renderBySeverity() {
+  const open = filtered().filter(isOpen);
+  const rows = SEVERITIES.map(sv => ({
+    label: sv.key === "none" ? "No severity" : sv.key,
+    value: open.filter(it => (it.severity || "none") === sv.key).length,
+    color: cssVar(sv.css),
+    tip: `${sv.key === "none" ? "No severity assigned" : sv.key}: ${open.filter(it => (it.severity || "none") === sv.key).length} open`,
+  }));
+  barList(rows, "bySeverity");
+}
+
+function renderInflow() {
+  const DAYS = 21;
+  const end = new Date(DATA.generated_at); end.setUTCHours(0, 0, 0, 0);
+  const days = [];
+  for (let i = DAYS - 1; i >= 0; i--) {
+    const d = new Date(end.getTime() - i * 86400000);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  const streams = STREAMS.filter(s => activeStreams.has(s.key));
+  const counts = {};
+  days.forEach(d => { counts[d] = Object.fromEntries(streams.map(s => [s.key, 0])); });
+  filtered().forEach(it => {
+    const d = it.created_at.slice(0, 10);
+    if (counts[d] && counts[d][it.source] !== undefined) counts[d][it.source]++;
+  });
+  const totals = days.map(d => streams.reduce((a, s) => a + counts[d][s.key], 0));
+  const maxT = Math.max(1, ...totals);
+
+  document.getElementById("inflowLegend").innerHTML = streams.map(s =>
+    `<span><i style="background:${cssVar(s.css)}"></i>${s.label}</span>`).join("");
+
+  const W = 1080, H = 200, padL = 26, padB = 24, padT = 8;
+  const plotW = W - padL - 8, plotH = H - padB - padT;
+  const slot = plotW / DAYS, barW = Math.min(30, slot - 8);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%">`;
+  // gridlines at 0 / half / max
+  [0, Math.ceil(maxT / 2), maxT].forEach(v => {
+    const y = padT + plotH - (v / maxT) * plotH;
+    svg += `<line x1="${padL}" y1="${y}" x2="${W - 8}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+    svg += `<text class="tick" x="${padL - 6}" y="${y + 4}" text-anchor="end">${v}</text>`;
+  });
+  days.forEach((d, i) => {
+    const x = padL + i * slot + (slot - barW) / 2;
+    let y = padT + plotH;
+    const total = streams.reduce((a, s) => a + counts[d][s.key], 0);
+    streams.forEach((s, si) => {
+      const v = counts[d][s.key];
+      if (!v) return;
+      const h = (v / maxT) * plotH;
+      y -= h;
+      const isTop = streams.slice(si + 1).every(s2 => !counts[d][s2.key]);
+      svg += `<rect class="hover-mark" data-tip="<b>${d}</b>${streams.map(s2 =>
+          `${esc(s2.label)}: ${counts[d][s2.key]}`).join("<br>")}<br>Total: ${total}"
+        x="${x}" y="${y + (isTop ? 0 : 1)}" width="${barW}" height="${Math.max(1, h - 1)}"
+        rx="${isTop ? 4 : 0}" fill="${cssVar(s.css)}"/>`;
+    });
+    if (i % 3 === 0 || i === DAYS - 1)
+      svg += `<text class="tick" x="${x + barW / 2}" y="${H - 6}" text-anchor="middle">${d.slice(5)}</text>`;
+  });
+  svg += `<line x1="${padL}" y1="${padT + plotH}" x2="${W - 8}" y2="${padT + plotH}" stroke="var(--baseline)" stroke-width="1"/>`;
+  svg += "</svg>";
+  document.getElementById("inflow").innerHTML = svg;
+}
+
+function renderTable() {
+  const items = [...filtered()].sort((a, b) =>
+    (isOpen(b) - isOpen(a)) || b.created_at.localeCompare(a.created_at));
+  const head = `<tr><th>Source</th><th>Sev</th><th>Item</th><th>Who</th><th>Status</th><th>SLA</th><th style="text-align:right">Age</th></tr>`;
+  const rows = items.map(it => {
+    const s = STREAMS.find(x => x.key === it.source);
+    const sev = it.severity
+      ? `<span class="sev ${it.severity}">${it.severity}</span>`
+      : `<span class="sev none">—</span>`;
+    const sla = it.sla_status
+      ? `<span class="sla-${esc(it.sla_status)}">${esc(it.sla_status)}</span>` : "";
+    return `<tr>
+      <td><span class="pill"><span class="dot" style="background:${cssVar(s.css)}"></span>${s.label.split(" ")[0]}</span></td>
+      <td>${sev}</td>
+      <td><a class="item" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+          ${it.brand ? `<div class="brand">${esc(it.brand)}</div>` : ""}</td>
+      <td>${esc(it.author || "")}</td>
+      <td>${esc(it.status)}</td>
+      <td>${sla}</td>
+      <td class="num">${fmtAge(it.created_at)}</td>
+    </tr>`;
+  });
+  document.getElementById("itemsTable").innerHTML = head + rows.join("");
+  document.getElementById("rowcount").textContent =
+    `${items.length} items · ${items.filter(isOpen).length} open`;
+}
+
+// --- shared tooltip on hover marks ---
+const tip = document.getElementById("tooltip");
+document.addEventListener("mousemove", e => {
+  const mark = e.target.closest?.(".hover-mark");
+  if (mark) {
+    tip.innerHTML = mark.dataset.tip;
+    tip.style.display = "block";
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 280) + "px";
+    tip.style.top = (e.clientY + 14) + "px";
+  } else tip.style.display = "none";
+});
+
+load();
+</script>
+</body>
+</html>
