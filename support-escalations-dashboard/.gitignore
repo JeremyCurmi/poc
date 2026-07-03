@@ -1,0 +1,3 @@
+# runtime artifacts — only the sample snapshot is committed
+data/items.json
+data/triage-state.json

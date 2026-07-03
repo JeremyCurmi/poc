@@ -99,6 +99,18 @@
   .brand { color: var(--muted); font-size: 12px; }
   .tablewrap { overflow-x: auto; }
   .rowcount { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .actions { white-space: nowrap; }
+  .act {
+    border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+    border-radius: 6px; padding: 2px 8px; font-size: 11.5px; cursor: pointer; margin-right: 4px;
+  }
+  .act:hover { border-color: var(--muted); color: var(--text-primary); }
+  .act:disabled { opacity: .45; cursor: wait; }
+  .tri { display: inline-block; font-size: 11px; border-radius: 5px; padding: 1px 7px; margin-top: 3px; }
+  .tri.acked { color: var(--stream-slack); border: 1px solid var(--stream-slack); }
+  .tri.snoozed { color: var(--muted); border: 1px solid var(--grid); }
+  .tri.done { color: var(--good); border: 1px solid var(--good); }
+  .tri a { color: inherit; }
 </style>
 </head>
 <body>
@@ -132,7 +144,7 @@
     </div>
     <div class="card span2">
       <h2>Work items</h2>
-      <div class="desc">Unified queue, newest first · open items above closed</div>
+      <div class="desc">Unified queue · untriaged first, then newest · open above closed</div>
       <div class="tablewrap"><table id="itemsTable"></table></div>
       <div class="rowcount" id="rowcount"></div>
     </div>
@@ -155,21 +167,31 @@ const streamColor = k => cssVar(STREAMS.find(s => s.key === k).css);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 let DATA = null;
+let SERVER = null;              // capabilities when served by server.js, else null (read-only)
 let activeStreams = new Set(STREAMS.map(s => s.key));
 
-async function load() {
+async function fetchData() {
+  try {
+    const r = await fetch("/api/items");
+    if (r.ok) { DATA = await r.json(); SERVER = DATA.capabilities; return; }
+  } catch (e) { /* static mode */ }
   for (const path of ["../data/items.json", "../data/sample-items.json"]) {
     try {
       const r = await fetch(path);
-      if (r.ok) { DATA = await r.json(); break; }
+      if (r.ok) { DATA = await r.json(); return; }
     } catch (e) { /* try next */ }
   }
+}
+
+async function load() {
+  await fetchData();
   if (!DATA) {
     document.getElementById("tiles").innerHTML =
-      '<div class="tile"><div class="label">No data found. Serve this folder over HTTP (see README) — file:// blocks fetch.</div></div>';
+      '<div class="tile"><div class="label">No data found. Run node server.js or serve over HTTP (see README) — file:// blocks fetch.</div></div>';
     return;
   }
-  document.getElementById("generated").textContent = "data as of " + DATA.generated_at.replace("T", " ").replace("Z", " UTC");
+  document.getElementById("generated").textContent = "data as of " + DATA.generated_at.replace("T", " ").replace("Z", " UTC")
+    + (SERVER ? "" : " · read-only (run node server.js for triage actions)");
   renderChips();
   renderAll();
 }
@@ -182,7 +204,12 @@ const fmtAge = iso => {
   if (d < 1) return Math.round(d * 24) + "h";
   return Math.round(d) + "d";
 };
-const isOpen = it => it.status_category !== "closed";
+// triage overlay: done closes an item, an active snooze parks it
+const isSnoozed = it => it.triage?.state === "snoozed" &&
+  new Date(it.triage.snoozed_until).getTime() > Date.now();
+const isOpen = it => it.status_category !== "closed" &&
+  it.triage?.state !== "done" && !isSnoozed(it);
+const needsTriage = it => isOpen(it) && !it.triage;
 const filtered = () => DATA.items.filter(it => activeStreams.has(it.source));
 
 function renderChips() {
@@ -209,7 +236,9 @@ function renderTiles() {
   const slaMissed = open.filter(it => it.sla_status === "missed").length;
   const highSev = open.filter(it => it.severity === "P1" || it.severity === "P2").length;
   const oldest = open.length ? Math.max(...open.map(it => ageDays(it.created_at))) : 0;
+  const untriaged = open.filter(needsTriage).length;
   const tiles = [
+    { label: "Needs triage", value: untriaged, hint: "open, nobody acked yet", bad: untriaged > 0 },
     { label: "Open items", value: open.length, hint: `${items.length} total in window` },
     { label: "SLA missed", value: slaMissed, hint: "Intercom SLAs", bad: slaMissed > 0 },
     { label: "P1 / P2 open", value: highSev, hint: "high-severity work", bad: highSev > 0 },
@@ -319,10 +348,43 @@ function renderInflow() {
   document.getElementById("inflow").innerHTML = svg;
 }
 
+function triageChip(it) {
+  const t = it.triage;
+  if (!t) return "";
+  const link = t.linear_url ? ` · <a href="${esc(t.linear_url)}" target="_blank" rel="noopener">${esc(t.linear_id || "Linear")}</a>` : "";
+  if (t.state === "done") return `<div class="tri done">done${link}</div>`;
+  if (isSnoozed(it)) return `<div class="tri snoozed">snoozed until ${esc(t.snoozed_until.slice(5, 16).replace("T", " "))}</div>`;
+  return `<div class="tri acked">acked${t.assignee ? " · " + esc(t.assignee) : ""}${link}</div>`;
+}
+
+function actionButtons(it) {
+  if (!SERVER) return "";
+  if (it.triage || it.status_category === "closed")
+    return it.triage ? `<button class="act" data-id="${esc(it.id)}" data-act="reopen">↩ reopen</button>` : "";
+  return `
+    <button class="act" data-id="${esc(it.id)}" data-act="ack">✓ ack</button>
+    <button class="act" data-id="${esc(it.id)}" data-act="snooze">💤 24h</button>
+    <button class="act" data-id="${esc(it.id)}" data-act="done">✅ done</button>
+    ${SERVER.linear ? `<button class="act" data-id="${esc(it.id)}" data-act="linear">↗ Linear</button>` : ""}`;
+}
+
+async function act(btn) {
+  const { id, act: action } = btn.dataset;
+  btn.disabled = true;
+  const path = action === "linear" ? "/api/linear" : "/api/action";
+  const body = action === "linear" ? { id } : { id, action };
+  const r = await fetch(path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) { alert(`Action failed: ${(await r.json()).error ?? r.status}`); btn.disabled = false; return; }
+  await fetchData();
+  renderAll();
+}
+
 function renderTable() {
   const items = [...filtered()].sort((a, b) =>
-    (isOpen(b) - isOpen(a)) || b.created_at.localeCompare(a.created_at));
-  const head = `<tr><th>Source</th><th>Sev</th><th>Item</th><th>Who</th><th>Status</th><th>SLA</th><th style="text-align:right">Age</th></tr>`;
+    (isOpen(b) - isOpen(a)) || (needsTriage(b) - needsTriage(a)) || b.created_at.localeCompare(a.created_at));
+  const head = `<tr><th>Source</th><th>Sev</th><th>Item</th><th>Who</th><th>Status</th><th>SLA</th><th style="text-align:right">Age</th>${SERVER ? "<th>Actions</th>" : ""}</tr>`;
   const rows = items.map(it => {
     const s = STREAMS.find(x => x.key === it.source);
     const sev = it.severity
@@ -334,16 +396,18 @@ function renderTable() {
       <td><span class="pill"><span class="dot" style="background:${cssVar(s.css)}"></span>${s.label.split(" ")[0]}</span></td>
       <td>${sev}</td>
       <td><a class="item" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
-          ${it.brand ? `<div class="brand">${esc(it.brand)}</div>` : ""}</td>
+          ${it.brand ? `<div class="brand">${esc(it.brand)}</div>` : ""}${triageChip(it)}</td>
       <td>${esc(it.author || "")}</td>
       <td>${esc(it.status)}</td>
       <td>${sla}</td>
       <td class="num">${fmtAge(it.created_at)}</td>
+      ${SERVER ? `<td class="actions">${actionButtons(it)}</td>` : ""}
     </tr>`;
   });
   document.getElementById("itemsTable").innerHTML = head + rows.join("");
   document.getElementById("rowcount").textContent =
-    `${items.length} items · ${items.filter(isOpen).length} open`;
+    `${items.length} items · ${items.filter(isOpen).length} open · ${items.filter(needsTriage).length} need triage`;
+  document.querySelectorAll(".act").forEach(b => b.addEventListener("click", () => act(b)));
 }
 
 // --- shared tooltip on hover marks ---
